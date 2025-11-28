@@ -17,9 +17,25 @@ float SteeringPos = 0.0;
 bool emergency = false;
 bool brakeState = false;
 bool coasting = false;
+
+// JRIVETT: A single global instance for control variables is probably fine, but you could put them in a struct to keep them together
+struct ControlPacket {
+    float erpm = 0.0;
+    float throttle = 0.0;
+    float steering = 0.0;
+    float brakeCurrent = 0.0;
+    float throttleRpm = 0.0;
+    float SteeringPos = 0.0;
+    bool emergency = false;
+    bool brakeState = false;
+    bool coasting = false;
+} controlPacket;
+
+
 // Function to parse UDP data and update control variables
 // Expected format: "throttle,steering,emergency"
-void setControls(const std::string &udpData) {
+// JRIVETT: now you can pass any packet in as a pointer
+void setControls(const std::string &udpData, ControlPacket* packet) {
     // Copy string to modifiable buffer
     char udpCopy[128];
     strncpy(udpCopy, udpData.c_str(), sizeof(udpCopy) - 1);
@@ -31,13 +47,15 @@ void setControls(const std::string &udpData) {
     while (token != nullptr) {
         switch (index) {
             case 0:
-                throttle = atof(token);
+                // JRIVETT: and set the value of whatever packet was passed.
+                //          this scales up better because it's now agnostic to where the packet came from.
+                packet->throttle = atof(token);
                 break;
             case 1:
-                steering = atof(token);
+                packet->steering = atof(token);
                 break;
             case 2:
-                emergency = (atoi(token) != 0);
+                packet->emergency = (atoi(token) != 0);
                 break;
         }
 
@@ -52,36 +70,38 @@ void setControls(const std::string &udpData) {
 
 }
 
-
-void CtrlVesc() {
-if (emergency == true) {
+// JRIVETT: you can also do the same thing in these functions
+void CtrlVesc(ControlPacket* packet) {
+if (packet->emergency == true) {
         vesc1.setBrakeCurrent(20.0f); // set to max brake current
         return;
 }
-      if (throttle < 0.0f) {
-        brakeCurrent = throttle *-1.0f / 5; // brake current = throttle value divided by 5. if max throttle is -100 then max brake current is 20A for now. val can be changed
-        brakeState = true;
-        vesc1.setBrakeCurrent(brakeCurrent);
+      if (packet->throttle < 0.0f) {
+        packet->brakeCurrent = packet->throttle *-1.0f / 5; // brake current = throttle value divided by 5. if max throttle is -100 then max brake current is 20A for now. val can be changed
+        packet->brakeState = true;
+        vesc1.setBrakeCurrent(packet->brakeCurrent);
         return;
     }
 
-    else if (throttle == 0.0f) {
-        coasting = true;  
+    else if (packet->throttle == 0.0f) {
+        packet->coasting = true;  
         vesc1.setBrakeCurrent(0.0f);
         vesc1.setCurrent(0.0f);
         return;
     }
 
-    else if (throttle > 0.0f) {
-        throttleRpm = (throttle / 100.0f) * 7500.0f; // map throttle 0-100 to 0 - maxRPM (7500 for old vescrpm,14800 new theoretical vesc)
-        brakeState = false;
-        coasting = false;
-        vesc1.setRPM(throttleRpm);
+    else if (packet->throttle > 0.0f) {
+        packet->throttleRpm = (throttle / 100.0f) * 7500.0f; // map throttle 0-100 to 0 - maxRPM (7500 for old vescrpm,14800 new theoretical vesc)
+        packet->brakeState = false;
+        packet->coasting = false;
+        vesc1.setRPM(packet->throttleRpm);
         return;
     }
 
 
 }
+
+// JRIVETT: Not gonna do it in these other functions but you get the point
 void CtrlOdrive() {
     // Map steering (-100 to +100) to ODrive position range (-maxPos to +maxPos)
     if (steering <-0.25f){
@@ -115,12 +135,14 @@ void updateAutonomousMode() {
         Serial.println(coasting);
 
 
-    CtrlVesc();
+    CtrlVesc(&controlPacket);
     CtrlOdrive();
     sendTelemetry();
 
     if (!rawCommands.empty()) {
-        setControls(rawCommands);
+        // JRIVETT: Just pass the address of the one we created up top, but you could totally call this elsewhere 
+        //          with a control packet from a different source. That's the whole idea behind this.
+        setControls(rawCommands, &controlPacket);
     }
 
 }
