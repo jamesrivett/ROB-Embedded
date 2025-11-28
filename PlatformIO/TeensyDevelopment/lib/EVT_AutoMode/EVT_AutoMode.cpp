@@ -38,7 +38,11 @@ struct ControlPacket {
 void setControls(const std::string &udpData, ControlPacket* packet) {
     // Copy string to modifiable buffer
     char udpCopy[128];
-    strncpy(udpCopy, udpData.c_str(), sizeof(udpCopy) - 1);
+    // JRIVETT: if you're giong to use strncpy, you need to make sure you're only copying over the distance of the smallest buffer.
+    //          otherwise, udpCopy might be bigger than udpData, and strncpy might read right out-of-bounds on udpData.
+    //          of course, this is only if udpData isn't null terminated. this is *actually very likely* since it's literally UDP data though. 
+    strncpy(udpCopy, udpData.c_str(), std::min(sizeof(udpCopy),sizeof(udpData)) - 1);
+    // JRIVETT: See? you even stick a null on the end of it in case you didn't get one off the data coming in.
     udpCopy[sizeof(udpCopy) - 1] = '\0';  // Ensure null termination
 
     char* token = strtok(udpCopy, ",");
